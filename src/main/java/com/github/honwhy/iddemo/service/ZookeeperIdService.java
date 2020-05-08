@@ -43,6 +43,7 @@ public class ZookeeperIdService {
                 for (String path : children) {
                     if (path.startsWith(childPath)) {
                         int node = Integer.parseInt(path.replace(childPath, ""));
+                        node = node % 1024;
                         snowflake = new Snowflake(node);
                     }
                 }
