@@ -9,7 +9,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
 import javax.annotation.PostConstruct;
-import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.util.List;
 
@@ -38,7 +37,7 @@ public class ZookeeperIdService {
             InetAddress address = InetAddress.getLocalHost();
             String host = address.getHostAddress();
             String childPath = host + "_" + serverPort + "_";
-            curatorFramework.create().withMode(CreateMode.PERSISTENT_SEQUENTIAL).forPath(PARENT_PATH + "/" + childPath);
+            curatorFramework.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PARENT_PATH + "/" + childPath);
             List<String> children = curatorFramework.getChildren().forPath(PARENT_PATH);
             if (!CollectionUtils.isEmpty(children)) {
                 for (String path : children) {
