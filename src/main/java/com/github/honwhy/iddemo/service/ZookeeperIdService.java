@@ -1,16 +1,18 @@
 package com.github.honwhy.iddemo.service;
 
+import com.google.common.collect.Maps;
 import com.relops.snowflake.Snowflake;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.data.Stat;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.util.CollectionUtils;
 
 import javax.annotation.PostConstruct;
 import java.net.InetAddress;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @Slf4j
@@ -29,25 +31,33 @@ public class ZookeeperIdService {
     @PostConstruct
     public void init() {
         try {
-            // parent director
-            if (curatorFramework.checkExists().forPath(PARENT_PATH) == null) {
-                curatorFramework.create().withMode(CreateMode.PERSISTENT).forPath(PARENT_PATH);
-            }
             // get IP: prefer IPv4 address
             InetAddress address = InetAddress.getLocalHost();
             String host = address.getHostAddress();
-            String childPath = host + "_" + serverPort + "_";
-            curatorFramework.create().withMode(CreateMode.EPHEMERAL_SEQUENTIAL).forPath(PARENT_PATH + "/" + childPath);
-            List<String> children = curatorFramework.getChildren().forPath(PARENT_PATH);
-            if (!CollectionUtils.isEmpty(children)) {
-                for (String path : children) {
-                    if (path.startsWith(childPath)) {
-                        int node = Integer.parseInt(path.replace(childPath, ""));
-                        node = node % 1024;
-                        snowflake = new Snowflake(node);
-                    }
-                }
+            String childPath = host + ":" + serverPort;
+
+            // parent director
+            Stat stat = curatorFramework.checkExists().forPath(PARENT_PATH);
+            if (stat == null) {
+                //不存在根节点,机器第一次启动,创建/snowflake/ip:port-000000000,并上传数据
+                createNode(curatorFramework, childPath);
             }
+            List<String> children = curatorFramework.getChildren().forPath(PARENT_PATH);
+            Map<String, Integer> nodeMap = Maps.newHashMap();//ip:port->00001
+            Map<String, String> realNode = Maps.newHashMap();//ip:port->(ipport-000001)
+            //存在根节点,先检查是否有属于自己的根节点
+            for (String key : children) {
+                String[] nodeKey = key.split("-");
+                realNode.put(nodeKey[0], key);
+                nodeMap.put(nodeKey[0], Integer.parseInt(nodeKey[1]));
+            }
+            Integer worker = nodeMap.get(childPath);
+            if (worker == null) {
+                String newNode = createNode(curatorFramework, childPath);
+                String[] nodeKey = newNode.split("-");
+                worker = Integer.parseInt(nodeKey[1]);
+            }
+            snowflake = new Snowflake(worker);
         } catch (Exception e) {
             log.error("start failed", e);
         }
@@ -55,5 +65,21 @@ public class ZookeeperIdService {
 
     public Long nextId() {
         return snowflake.next();
+    }
+
+    /**
+     * 创建持久顺序节点
+     *
+     * @param curator
+     * @return
+     * @throws Exception
+     */
+    private String createNode(CuratorFramework curator, String childPath) throws Exception {
+        try {
+            return curator.create().creatingParentsIfNeeded().withMode(CreateMode.PERSISTENT_SEQUENTIAL).forPath(PARENT_PATH + "/" + childPath + "-");
+        } catch (Exception e) {
+            log.error("create node error msg", e);
+            throw e;
+        }
     }
 }
